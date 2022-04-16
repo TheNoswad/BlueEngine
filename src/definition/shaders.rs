@@ -15,12 +15,11 @@ impl crate::header::Renderer {
         shader_source: String,
         uniform_layout: Option<&BindGroupLayout>,
         settings: ShaderSettings,
-    ) -> Result<usize, anyhow::Error> {
+    ) -> Result<legion::Entity, anyhow::Error> {
         let shaders = self
             .build_shaders(name, shader_source, uniform_layout, settings)
             .expect("Couldn't create shaders");
-        let index = self.shaders.len();
-        self.shaders.push(shaders);
+        let index = self.world.0.push((shaders,));
         Ok(index)
     }
 
@@ -103,20 +102,22 @@ impl crate::header::Renderer {
     }
 
     /// Appends a shader to render queue
-    pub fn append_shaders(&mut self, shader: Shaders) -> Result<usize, anyhow::Error> {
-        let index = self.shaders.len();
-        self.shaders.push(shader);
+    pub fn append_shaders(&mut self, shader: Shaders) -> Result<legion::Entity, anyhow::Error> {
+        let index = self.world.0.push((shader,));
         Ok(index)
     }
 
     /// Allows to modify a shader
-    pub fn get_shader(&mut self, index: usize) -> Result<&mut Shaders, anyhow::Error> {
-        Ok(self.shaders.get_mut(index).unwrap())
+    pub fn get_shader(&mut self, index: legion::Entity) -> Result<&mut Shaders, anyhow::Error> {
+        match self.world.0.entry(index) {
+            Some(mut pipeline_entry) => Ok(pipeline_entry.get_component_mut::<Shaders>()?),
+            None => Err(anyhow::Error::msg("Couldn't find the pipeline")),
+        }
     }
 
     /// Deletes a shader group
-    pub fn remove_sahder(&mut self, index: usize) -> Result<(), anyhow::Error> {
-        self.shaders.remove(index);
+    pub fn remove_sahder(&mut self, index: legion::Entity) -> Result<(), anyhow::Error> {
+        self.world.0.remove(index);
         Ok(())
     }
 }

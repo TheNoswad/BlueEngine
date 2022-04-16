@@ -4,8 +4,8 @@
  * The license is same as the one on the root.
 */
 
-use wgpu::util::DeviceExt;
 use crate::header::{Vertex, VertexBuffers};
+use wgpu::util::DeviceExt;
 
 impl crate::header::Renderer {
     /// Creates and adds the vertex buffers to render queue
@@ -13,12 +13,11 @@ impl crate::header::Renderer {
         &mut self,
         verticies: Vec<Vertex>,
         indicies: Vec<u16>,
-    ) -> Result<usize, anyhow::Error> {
+    ) -> Result<legion::Entity, anyhow::Error> {
         let vertex_buffers = self
             .build_vertex_buffers(verticies, indicies)
             .expect("Couldn't create vertex buffer");
-        let index = self.vertex_buffers.len();
-        self.vertex_buffers.push(vertex_buffers);
+        let index = self.world.0.push((vertex_buffers,));
         Ok(index)
     }
 
@@ -55,20 +54,25 @@ impl crate::header::Renderer {
     pub fn append_vertex_buffer(
         &mut self,
         vertex_buffer: VertexBuffers,
-    ) -> Result<usize, anyhow::Error> {
-        let index = self.vertex_buffers.len();
-        self.vertex_buffers.push(vertex_buffer);
+    ) -> Result<legion::Entity, anyhow::Error> {
+        let index = self.world.0.push((vertex_buffer,));
         Ok(index)
     }
 
     /// Allows to modify a vertex buffer
-    pub fn get_vertex_buffer(&mut self, index: usize) -> Result<&mut VertexBuffers, anyhow::Error> {
-        Ok(self.vertex_buffers.get_mut(index).unwrap())
+    pub fn get_vertex_buffer(
+        &mut self,
+        index: legion::Entity,
+    ) -> Result<&mut VertexBuffers, anyhow::Error> {
+        match self.world.0.entry(index) {
+            Some(pipeline_entry) => Ok(pipeline_entry.get_component_mut::<VertexBuffers>()?),
+            None => Err(anyhow::Error::msg("Couldn't find the pipeline")),
+        }
     }
 
     /// Removes vertex and index buffer group
-    pub fn remove_vertex_buffer(&mut self, index: usize) -> Result<(), anyhow::Error> {
-        self.vertex_buffers.remove(index);
+    pub fn remove_vertex_buffer(&mut self, index: legion::Entity) -> Result<(), anyhow::Error> {
+        self.world.0.remove(index);
         Ok(())
     }
 }

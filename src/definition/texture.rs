@@ -6,6 +6,7 @@
 
 use crate::header::{TextureData, TextureMode, Textures};
 use image::GenericImageView;
+use legion::EntityStore;
 use wgpu::{Sampler, Texture, TextureView};
 
 impl crate::header::Renderer {
@@ -18,12 +19,11 @@ impl crate::header::Renderer {
         texture_data: TextureData,
         texture_mode: TextureMode,
         //texture_format: TextureFormat,
-    ) -> Result<usize, anyhow::Error> {
+    ) -> Result<legion::Entity, anyhow::Error> {
         let textures = self
             .build_texture(name, texture_data, texture_mode)
             .expect("Couldn't create shaders");
-        let index = self.texture_bind_group.len();
-        self.texture_bind_group.push(textures);
+        let index = self.world.0.push((textures,));
         Ok(index)
     }
 
@@ -121,15 +121,49 @@ impl crate::header::Renderer {
     }
 
     /// Appends a texture to render queue
-    pub fn append_texture(&mut self, buffer: Textures) -> Result<usize, anyhow::Error> {
-        let index = self.texture_bind_group.len();
-        self.texture_bind_group.push(buffer);
+    pub fn append_texture(&mut self, buffer: Textures) -> Result<legion::Entity, anyhow::Error> {
+        let index = self.world.0.push((buffer,));
         Ok(index)
     }
 
+    /// Allows to modify a vertex buffer
+    pub fn get_texture<T: Fn(&Textures)>(
+        &mut self,
+        index: legion::Entity,
+        onload: T,
+    ) -> anyhow::Result<()> {
+        match self.world.0.entry(index) {
+            Some(pipeline_entry) => {
+                onload(pipeline_entry.get_component::<Textures>().unwrap());
+
+                Ok(())
+            }
+            None => Err(anyhow::Error::msg("message")),
+        }
+    }
+
+    /// Allows to modify a vertex buffer
+    pub fn get_texture_mut<T: Fn(&mut Textures)>(
+        &mut self,
+        index: legion::Entity,
+        onload: T,
+    ) -> anyhow::Result<()> {
+        match self.world.0.entry_mut(index) {
+            Ok(mut pipeline_entry) => {
+                onload(pipeline_entry.get_component_mut::<Textures>()?);
+
+                Ok(())
+            }
+            Err(e) => Err(anyhow::Error::msg(format!(
+                "Couldn't find the pipeline: {}",
+                e
+            ))),
+        }
+    }
+
     /// Deltes texture data
-    pub fn remove_texture(&mut self, index: usize) -> Result<(), anyhow::Error> {
-        self.texture_bind_group.remove(index);
+    pub fn remove_texture(&mut self, index: legion::Entity) -> Result<(), anyhow::Error> {
+        self.world.0.remove(index);
         Ok(())
     }
 
@@ -168,6 +202,6 @@ impl crate::header::Renderer {
             ..Default::default()
         });
 
-        return (texture, view, sampler)
+        return (texture, view, sampler);
     }
 }

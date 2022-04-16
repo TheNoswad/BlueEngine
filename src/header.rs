@@ -137,11 +137,18 @@ pub mod uniform_type {
     }
 }
 
+// This is a holder for the data that needs to be updated for the pipeline
+pub(crate) struct PipelineToUpdate {
+    pub(crate) vertex: Option<VertexBuffers>,
+    pub(crate) shader: Option<Shaders>,
+    pub(crate) texture: Option<Textures>,
+    pub(crate) uniform: Option<UniformBuffers>,
+}
+
 /// Objects make it easier to work with Blue Engine, it automates most of work needed for
 /// creating 3D objects and showing them on screen. A range of default objects are available
 /// as well as ability to customize each of them and even create your own! You can also
 /// customize almost everything there is about them!
-#[derive(Debug)]
 pub struct Object {
     /// Give your object a name, which can help later on for debugging.
     pub name: Option<&'static str>,
@@ -151,7 +158,7 @@ pub struct Object {
     pub indices: Vec<u16>,
     pub uniform_layout: wgpu::BindGroupLayout,
     /// Pipeline holds all the data that is sent to GPU, including shaders and textures
-    pub pipeline: (Pipeline, Option<usize>),
+    pub pipeline: (Pipeline, Entity),
     /// Dictates the size of your object in pixels
     pub size: (f32, f32, f32),
     pub scale: (f32, f32, f32),
@@ -170,6 +177,8 @@ pub struct Object {
     pub camera_effect: bool,
     /// Shader settings
     pub shader_settings: ShaderSettings,
+    // update data
+    pub(crate) update: PipelineToUpdate,
 }
 
 /// Extra settings to customize objects on time of creation
@@ -186,8 +195,6 @@ pub struct ObjectSettings {
     pub color: uniform_type::Array,
     /// Should it be affected by camera?
     pub camera_effect: bool,
-    /// Custom texture index
-    pub texture_index: usize,
     /// Shader Settings
     pub shader_settings: ShaderSettings,
 }
@@ -202,7 +209,6 @@ impl Default for ObjectSettings {
                 data: crate::utils::default_resources::DEFAULT_COLOR,
             },
             camera_effect: true,
-            texture_index: 0,
             shader_settings: ShaderSettings::default(),
         }
     }
@@ -254,17 +260,6 @@ pub struct Engine {
     pub objects: Vec<Object>,
     /// The camera handles the way the scene looks when rendered. You can modify everything there is to camera through this.
     pub camera: Camera,
-
-    pub(crate) world: (legion::World, legion::Schedule),
-}
-
-/// Container for pipeline values. Each pipeline takes only 1 vertex shader, 1 fragment shader, 1 texture data, and optionally a vector of uniform data.
-#[derive(Debug, Clone, Copy)]
-pub struct Pipeline {
-    pub shader_index: usize,
-    pub vertex_buffer_index: usize,
-    pub texture_index: usize,
-    pub uniform_index: Option<usize>,
 }
 
 /// Container for vertex and index buffer
@@ -282,6 +277,16 @@ pub type Shaders = wgpu::RenderPipeline;
 pub type UniformBuffers = wgpu::BindGroup;
 /// Textures are image data that are sent to GPU to be set to a surface
 pub type Textures = wgpu::BindGroup;
+/// Entity
+pub type Entity = legion::Entity;
+
+/// Container for pipeline values. Each pipeline takes only 1 vertex shader, 1 fragment shader, 1 texture data, and optionally a vector of uniform data.
+pub struct Pipeline {
+    pub shader: Entity,
+    pub vertex_buffer: Entity,
+    pub texture: Entity,
+    pub uniform: Option<Entity>,
+}
 
 // Main renderer class. this will contain all methods and data related to the renderer
 pub struct Renderer {
@@ -293,11 +298,8 @@ pub struct Renderer {
     pub(crate) texture_bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) default_uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) depth_buffer: (wgpu::Texture, wgpu::TextureView, wgpu::Sampler),
-    pub(crate) shaders: Vec<Shaders>,
-    pub(crate) vertex_buffers: Vec<VertexBuffers>,
-    pub(crate) texture_bind_group: Vec<Textures>,
-    pub(crate) uniform_bind_group: Vec<UniformBuffers>,
-    pub(crate) render_pipelines: Vec<Pipeline>,
+    pub(crate) world: (legion::World, legion::Schedule),
+    pub default_data: Option<(Entity, Entity, Entity)>,
 }
 
 /// Descriptor and settings for a window.
@@ -347,6 +349,8 @@ pub struct Camera {
     pub view_data: nalgebra_glm::Mat4,
     // For checking and rebuilding it's uniform buffer
     pub(crate) changed: bool,
+
+    pub(crate) entity_id: legion::Entity,
 }
 
 /// The mouse button identifier

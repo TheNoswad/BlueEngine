@@ -4,13 +4,17 @@
  * The license is same as the one on the root.
 */
 
+use legion::EntityStore;
+
 use crate::header::uniform_type::Array;
 use crate::header::{
-    normalize, uniform_type, Engine, Object, ObjectSettings, Pipeline, Renderer, RotateAxis,
-    UniformBuffer, Vertex,
+    normalize, uniform_type, Engine, Entity, Object, ObjectSettings, Pipeline, PipelineToUpdate,
+    Renderer, RotateAxis, Shaders, Textures, UniformBuffer, UniformBuffers, Vertex, VertexBuffers,
 };
 use crate::utils::default_resources::{DEFAULT_MATRIX_4, DEFAULT_SHADER};
 pub mod two_dimensions;
+
+//? Add optional subpipeline storage too for default data
 
 impl Engine {
     /// Creates a new object
@@ -20,43 +24,48 @@ impl Engine {
         indicies: Vec<u16>,
         settings: ObjectSettings,
     ) -> anyhow::Result<usize> {
-        let vertex_buffer_index = self
+        let vertex_buffer = self
             .renderer
             .build_and_append_vertex_buffers(verticies.clone(), indicies.clone())?;
-        let b = vertex_buffer_index;
 
-        let uniform_index = self.renderer.build_and_append_uniform_buffers(vec![
+        let uniform = self.renderer.build_and_append_uniform_buffers(vec![
             UniformBuffer::Matrix("Transformation Matrix", DEFAULT_MATRIX_4),
             UniformBuffer::Array("Color", settings.color),
         ])?;
 
-        let shader_index = self.renderer.build_and_append_shaders(
+        let shader = self.renderer.build_and_append_shaders(
             settings.name.unwrap_or("Object"),
             DEFAULT_SHADER.to_string(),
-            Some(&uniform_index.1),
+            Some(&uniform.1),
             settings.shader_settings,
         )?;
+
+        let pipeline = Pipeline {
+            vertex_buffer,
+            shader: shader,
+            texture: self.renderer.default_data.unwrap().2,
+            uniform: Some(uniform.0),
+        };
+
+        let pipeline_index = self.renderer.world.0.push((
+            vertex_buffer,
+            shader,
+            self.renderer.default_data.unwrap().2,
+            Some(uniform.0),
+        ));
 
         let index = self.objects.len();
         self.objects.push(Object {
             name: settings.name,
             vertices: verticies,
             indices: indicies,
-            pipeline: (
-                Pipeline {
-                    vertex_buffer_index,
-                    shader_index: shader_index,
-                    texture_index: settings.texture_index,
-                    uniform_index: Some(uniform_index.0),
-                },
-                None,
-            ),
-            uniform_layout: uniform_index.1,
+            pipeline: (pipeline, pipeline_index),
+            uniform_layout: uniform.1,
             size: (
                 self.window.inner_size().width as f32,
                 self.window.inner_size().height as f32,
                 0f32,
-            ),
+            ), //? fix this and test, make sure ECS works or else weeks of work for nothin
             scale: settings.scale,
             position: (0f32, 0f32, 0f32),
             changed: false,
@@ -65,12 +74,14 @@ impl Engine {
             object_index: self.objects.len(),
             camera_effect: settings.camera_effect,
             shader_settings: settings.shader_settings,
+            update: PipelineToUpdate {
+                vertex: None,
+                shader: None,
+                texture: None,
+                uniform: None,
+            },
         });
         let object = self.objects.get_mut(index).unwrap();
-        object.pipeline = (
-            object.pipeline.0,
-            Some(self.renderer.append_pipeline(object.pipeline.0)?),
-        );
         object.scale(settings.scale.0, settings.scale.1, settings.scale.2);
         object.position(
             settings.position.0,
@@ -78,6 +89,7 @@ impl Engine {
             settings.position.2,
             self.window.inner_size(),
         );
+
         //object.update(&mut self.renderer)?;
 
         Ok(index)
@@ -243,9 +255,16 @@ impl Object {
     }
 
     /// Replaces the object's texture with provided one
-    pub fn change_texture(&mut self, texture_index: usize) -> anyhow::Result<()> {
-        self.pipeline.0.texture_index = texture_index;
+    pub fn change_texture(&mut self, texture: Textures) -> anyhow::Result<()> {
+        self.update.texture = Some(texture);
         self.changed = true;
+
+        Ok(())
+    }
+
+    /// Replaces the object's texture with provided one
+    pub fn change_texture_from_id(&mut self, texture: Entity) -> anyhow::Result<()> {
+        self.pipeline.0.texture = texture;
 
         Ok(())
     }
@@ -254,30 +273,44 @@ impl Object {
     pub fn update(&mut self, renderer: &mut Renderer) -> anyhow::Result<()> {
         self.update_vertex_buffer(renderer)?;
         self.update_uniform_buffer(renderer)?;
-        self.update_pipeline(renderer)?;
         self.update_shader(renderer)?;
+        self.update_pipeline(renderer)?;
         self.changed = false;
         Ok(())
     }
 
     pub(crate) fn update_pipeline(&mut self, renderer: &mut Renderer) -> anyhow::Result<()> {
-        //let pipeline = renderer.get_pipeline(self.pipeline.1.unwrap())?;
-        let _ = std::mem::replace(
-            &mut renderer.render_pipelines[self.pipeline.1.unwrap()],
-            self.pipeline.0,
-        );
+        match renderer.world.0.entry_mut(self.pipeline.1) {
+            Ok(mut pipeline_entry) => {
+                /*let vertex_buffer = pipeline_entry.get_component_mut::<VertexBuffers>()?;
+                let _ = std::mem::swap(vertex_buffer, &mut self.pipeline.0.vertex_buffer);
 
-        Ok(())
+                let shader = pipeline_entry.get_component_mut::<Shaders>()?;
+                let _ = std::mem::swap(shader, &mut self.pipeline.0.shader);
+
+                let uniform_buffers =
+                    pipeline_entry.get_component_mut::<Option<UniformBuffers>>()?;
+                let _ = std::mem::swap(uniform_buffers, &mut self.pipeline.0.uniform);
+
+                let textures = pipeline_entry.get_component_mut::<Textures>()?;
+                let _ = std::mem::swap(textures, &mut self.pipeline.0.texture);*/
+
+                Ok(())
+            }
+            Err(e) => Err(anyhow::Error::msg(format!(
+                "Updating pipeline error: {}",
+                e
+            ))),
+        }
     }
 
     pub(crate) fn update_vertex_buffer(&mut self, renderer: &mut Renderer) -> anyhow::Result<()> {
         let updated_buffer =
             renderer.build_vertex_buffers(self.vertices.clone(), self.indices.clone())?;
-        let _ = std::mem::replace(
-            &mut renderer.vertex_buffers[self.pipeline.0.vertex_buffer_index],
-            updated_buffer,
-        );
 
+        self.update.vertex = Some(updated_buffer);
+
+        self.changed = true;
         Ok(())
     }
 
@@ -288,11 +321,10 @@ impl Object {
             Some(&self.uniform_layout),
             self.shader_settings,
         )?;
-        let _ = std::mem::replace(
-            &mut renderer.shaders[self.pipeline.0.shader_index],
-            updated_shader,
-        );
 
+        self.update.shader = Some(updated_shader);
+
+        self.changed = true;
         Ok(())
     }
 
@@ -307,11 +339,9 @@ impl Object {
             ])?
             .0;
 
-        let _ = std::mem::replace(
-            &mut renderer.uniform_bind_group[self.pipeline.0.uniform_index.unwrap()],
-            updated_buffer,
-        );
+        self.update.uniform = Some(updated_buffer);
 
+        self.changed = true;
         Ok(())
     }
 

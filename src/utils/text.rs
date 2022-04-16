@@ -5,7 +5,7 @@
 */
 
 use crate::{
-    header::{normalize, ObjectSettings, Renderer, TextureData},
+    header::{normalize, ObjectSettings, Renderer, TextureData, Textures},
     objects,
 };
 use std::collections::BTreeMap;
@@ -19,14 +19,14 @@ struct TextData {
 }
 pub struct Text {
     font: fontdue::Font,
-    char_cache: BTreeMap<char, (fontdue::Metrics, usize)>,
+    char_cache: BTreeMap<char, (fontdue::Metrics, Textures)>,
     size: f32,
 }
 
 impl Text {
     pub fn new(font: &[u8], cache_on_size: f32, renderer: &mut Renderer) -> anyhow::Result<Self> {
         let font = fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
-        let mut char_cache = BTreeMap::<char, (fontdue::Metrics, usize)>::new();
+        let mut char_cache = BTreeMap::<char, (fontdue::Metrics, Textures)>::new();
 
         let characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=/\\?|<>'\"{}[],.~`";
         for i in characters.chars() {
@@ -48,12 +48,14 @@ impl Text {
                 char_length += 1;
             }
 
-            let index = renderer.build_and_append_texture(
-                "Character Cache",
-                TextureData::Image(image::DynamicImage::ImageRgba8(char_image)),
-                crate::header::TextureMode::Clamp,
-                //crate::header::TextureFormat::PNM,
-            )?;
+            let index = renderer
+                .build_texture(
+                    "Character Cache",
+                    TextureData::Image(image::DynamicImage::ImageRgba8(char_image)),
+                    crate::header::TextureMode::Clamp,
+                    //crate::header::TextureFormat::PNM,
+                )
+                .unwrap();
             char_cache.insert(i, (character.0, index)); // slap these as bmp textures
         }
 
@@ -70,39 +72,36 @@ impl Text {
         position: (isize, isize),
         engine: &mut crate::header::Engine,
     ) -> anyhow::Result<()> {
-        let mut characters = Vec::<(fontdue::Metrics, usize)>::new();
+        let mut characters = Vec::<(fontdue::Metrics, Textures)>::new();
         for i in content.char_indices() {
-            let character: (fontdue::Metrics, usize);
-            match self.char_cache.get(&i.1) {
-                Some(char) => character = char.clone(),
-                None => {
-                    character = {
-                        let character = self.font.rasterize(i.1, self.size);
-                        let mut char_image = image::RgbaImage::new(
-                            character.0.width as u32,
-                            character.0.height as u32,
-                        );
+            let character: &(fontdue::Metrics, Textures);
+            if let Some(char) = self.char_cache.get(&i.1) {
+                character = char.clone()
+            } else {
+                let character = self.font.rasterize(i.1, self.size);
+                let mut char_image =
+                    image::RgbaImage::new(character.0.width as u32, character.0.height as u32);
 
-                        let mut char_length: usize = 0;
-                        for pixel in char_image.pixels_mut() {
-                            //let pixel_value = percentage(character.1[char_length] as f32, 255f32);]
-                            let pixel_value = character.1[char_length];
-                            pixel.0 = [pixel_value, pixel_value, pixel_value, 0];
+                let mut char_length: usize = 0;
+                for pixel in char_image.pixels_mut() {
+                    //let pixel_value = percentage(character.1[char_length] as f32, 255f32);]
+                    let pixel_value = character.1[char_length];
+                    pixel.0 = [pixel_value, pixel_value, pixel_value, 0];
 
-                            char_length += 1;
-                        }
-                        let index = engine.renderer.build_and_append_texture(
-                            "CharTex",
-                            TextureData::Image(image::DynamicImage::ImageRgba8(char_image)),
-                            crate::header::TextureMode::Clamp,
-                            //crate::header::TextureFormat::BMP,
-                        )?;
-                        (character.0, index)
-                    }
+                    char_length += 1;
                 }
-            }
+                let index = engine
+                    .renderer
+                    .build_texture(
+                        "CharTex",
+                        TextureData::Image(image::DynamicImage::ImageRgba8(char_image)),
+                        crate::header::TextureMode::Clamp,
+                        //crate::header::TextureFormat::BMP,
+                    )
+                    .unwrap();
 
-            characters.push(character);
+                characters.push((character.0, index));
+            }
         }
 
         let mut current_character_position_x = position.0;
@@ -117,8 +116,6 @@ impl Text {
             let character_shape_index = objects::two_dimensions::square(
                 ObjectSettings {
                     name: Some("text"),
-                    //size: (character.0.width as f32, character.0.height as f32, 0f32),
-                    texture_index: character.1,
                     position: (position.0 as f32, position.1 as f32, 0.0),
                     scale: (
                         normalize(character.0.width as f32, window_size.width),
@@ -130,6 +127,12 @@ impl Text {
                 },
                 engine,
             )?;
+
+            {
+                let texture_id = engine.renderer.append_texture(character.1)?;
+                let char = engine.get_object(character_shape_index).unwrap();
+                char.change_texture_from_id(texture_id);
+            }
 
             let character_shape = engine.get_object(character_shape_index).unwrap();
             current_character_position_x += character.0.width as isize + 20;

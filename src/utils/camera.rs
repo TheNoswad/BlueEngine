@@ -11,7 +11,13 @@ use super::default_resources::DEFAULT_MATRIX_4;
 
 impl Camera {
     /// Creates a new camera. this should've been automatically done at the time of creating an engine
-    pub fn new(renderer: &Renderer) -> Result<Self> {
+    pub fn new(renderer: &mut Renderer) -> Result<Self> {
+        let camera_uniform =
+            renderer.build_and_append_uniform_buffers(vec![UniformBuffer::Matrix(
+                "Camera Uniform",
+                DEFAULT_MATRIX_4,
+            )])?;
+
         let mut camera = Self {
             position: nalgebra_glm::vec3(0.0, 0.0, 1.0),
             target: nalgebra_glm::vec3(0.0, 0.0, -1.0).into(),
@@ -22,6 +28,7 @@ impl Camera {
             far: 100.0,
             view_data: DEFAULT_MATRIX_4.to_im(),
             changed: true,
+            entity_id: camera_uniform.0,
         };
         camera.build_view_projection_matrix()?;
 
@@ -102,7 +109,7 @@ impl Camera {
     /// This builds a uniform buffer data from camera view data that is sent to the GPU in next frame
     pub fn update_view_projection(&mut self, renderer: &mut Renderer) -> Result<()> {
         if self.changed {
-            let updated_buffer = renderer
+            let mut updated_buffer = renderer
                 .build_uniform_buffer(vec![UniformBuffer::Matrix(
                     "Camera Uniform",
                     self.camera_uniform_buffer()
@@ -110,7 +117,10 @@ impl Camera {
                 )])
                 .expect("Couldn't update the camera uniform buffer")
                 .0;
-            let _ = std::mem::replace(&mut renderer.uniform_bind_group[0], updated_buffer);
+            let _ = std::mem::replace(
+                &mut renderer.get_uniform_buffer(self.entity_id)?,
+                &mut updated_buffer,
+            );
             self.changed = false;
         }
 

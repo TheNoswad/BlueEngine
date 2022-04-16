@@ -12,12 +12,11 @@ impl crate::header::Renderer {
     pub fn build_and_append_uniform_buffers(
         &mut self,
         uniforms: Vec<UniformBuffer>,
-    ) -> Result<(usize, BindGroupLayout), anyhow::Error> {
+    ) -> Result<(legion::Entity, BindGroupLayout), anyhow::Error> {
         let uniform_buffers = self
             .build_uniform_buffer(uniforms)
             .expect("Couldn't create uniform buffer");
-        let index = self.shaders.len();
-        self.uniform_bind_group.push(uniform_buffers.0);
+        let index = self.world.0.push((uniform_buffers,));
         Ok((index, uniform_buffers.1))
     }
 
@@ -102,15 +101,25 @@ impl crate::header::Renderer {
     pub fn append_uniform_buffer(
         &mut self,
         buffer: UniformBuffers,
-    ) -> Result<usize, anyhow::Error> {
-        let index = self.uniform_bind_group.len();
-        self.uniform_bind_group.push(buffer);
+    ) -> Result<legion::Entity, anyhow::Error> {
+        let index = self.world.0.push((buffer,));
         Ok(index)
     }
 
+    /// Allows to modify a uniform buffer
+    pub fn get_uniform_buffer(
+        &mut self,
+        index: legion::Entity,
+    ) -> Result<&mut UniformBuffers, anyhow::Error> {
+        match self.world.0.entry(index) {
+            Some(pipeline_entry) => Ok(pipeline_entry.get_component_mut::<UniformBuffers>()?),
+            None => Err(anyhow::Error::msg("Couldn't find the pipeline")),
+        }
+    }
+
     /// Removes uniform buffer group
-    pub fn remove_uniform_buffer(&mut self, index: usize) -> Result<(), anyhow::Error> {
-        self.uniform_bind_group.remove(index);
+    pub fn remove_uniform_buffer(&mut self, index: legion::Entity) -> Result<(), anyhow::Error> {
+        self.world.0.remove(index);
         Ok(())
     }
 }

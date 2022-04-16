@@ -48,45 +48,9 @@ impl Engine {
         let window = new_window.build(&event_loop).unwrap();
 
         // The renderer init on current window
-        let mut renderer = futures::executor::block_on(Renderer::new(&window));
+        let mut renderer = futures::executor::block_on(Renderer::new(&window))?;
 
-        let camera = Camera::new(&renderer)?;
-
-        let _ = renderer.build_and_append_texture(
-            "Default Texture",
-            TextureData::Bytes(DEFAULT_TEXTURE.to_vec()),
-            crate::header::TextureMode::Clamp,
-            //crate::header::TextureFormat::PNG
-        )?;
-
-        let _ = renderer.build_and_append_uniform_buffers(vec![UniformBuffer::Matrix(
-            "Camera Uniform",
-            camera.camera_uniform_buffer()?,
-        )])?;
-
-        let default_uniform = renderer
-            .build_and_append_uniform_buffers(vec![
-                UniformBuffer::Matrix("Transformation Matrix", DEFAULT_MATRIX_4),
-                UniformBuffer::Array(
-                    "Color",
-                    uniform_type::Array {
-                        data: DEFAULT_COLOR,
-                    },
-                ),
-            ])?
-            .1;
-
-        let _ = renderer.build_and_append_shaders(
-            "Default Shader",
-            DEFAULT_SHADER.to_string(),
-            Some(&default_uniform),
-            ShaderSettings::default(),
-        )?;
-
-        let world = (
-            legion::World::default(),
-            legion::Schedule::builder().build(),
-        );
+        let camera = Camera::new(&mut renderer)?;
 
         Ok(Self {
             window,
@@ -94,7 +58,6 @@ impl Engine {
             renderer,
             objects: Vec::new(),
             camera,
-            world,
         })
     }
 
@@ -115,7 +78,6 @@ impl Engine {
             window,
             mut objects,
             mut camera,
-            mut world,
         } = self;
 
         // and get input events to handle them later
